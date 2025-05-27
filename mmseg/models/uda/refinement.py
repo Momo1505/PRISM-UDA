@@ -1,7 +1,9 @@
 import torch 
 import torch.nn as nn
 import torch.nn.functional as F
-from timm.models.layers import DropPath, to_2tuple
+from timm.models.layers import DropPath, to_2tuple,trunc_normal_
+import math
+from einops import rearrange
 
 class Guidance(nn.Module):
 
@@ -68,13 +70,25 @@ class Guidance(nn.Module):
 
         return guidance_sam,guidance_pl_source
 
-class OverlapPatchEmbed(nn.Module):
+def init_weights(m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=0.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+        elif isinstance(m, nn.Conv2d):
+            nn.init.kaiming_normal_(m.weight)
+            if m.bias is not None: nn.init.constant_(m.bias, 0)
+
+class PatchEmbed(nn.Module):
     """Image to Patch Embedding."""
 
     def __init__(self,
-                 img_size=1024,
-                 patch_size=128,
-                 stride=64,
+                 img_size=256,
+                 patch_size=7,
+                 stride=4,
                  in_chans=1,
                  embed_dim=768):
         super().__init__()
@@ -93,6 +107,8 @@ class OverlapPatchEmbed(nn.Module):
             stride=stride,
             padding=(patch_size[0] // 2, patch_size[1] // 2))
         self.norm = nn.LayerNorm(embed_dim)
+        token = math.floor((img_size[0] + 2 * (patch_size[0] // 2) - patch_size[0]) / stride) + 1
+        self.num_tokens= token ** 2
 
     def forward(self, x):
         x = self.proj(x)
@@ -103,15 +119,20 @@ class OverlapPatchEmbed(nn.Module):
         return x
 
 class Encoder(nn.Module):
-    def __init__(self,device,num_blocks=6,num_seq=289,embed_dim=768):
+    def __init__(self,device,num_blocks=6,img_size=256,
+                 patch_size=7,
+                 stride=4,
+                 in_chans=1,
+                 embed_dim=768):
         super().__init__()
+        self.sam_embed = PatchEmbed(img_size=img_size,patch_size=patch_size,stride=stride,in_chans=in_chans,embed_dim=embed_dim)
+        self.pl_embed = PatchEmbed(img_size=img_size,patch_size=patch_size,stride=stride,in_chans=in_chans,embed_dim=embed_dim)
+        num_seq = self.pl_embed.num_tokens
         self.pos_embed = nn.Embedding(num_seq,embed_dim)
         self.register_buffer("positions",torch.arange(num_seq,device=device))
 
-        self.sam_embed = OverlapPatchEmbed()
-        self.pl_embed = OverlapPatchEmbed()
-
         self.encode = nn.ModuleList([Guidance(embed_dim) for _ in range(num_blocks)])
+
 
     def forward(self, sam, pl_source):
         positions = self.pos_embed(self.positions)
@@ -120,45 +141,54 @@ class Encoder(nn.Module):
 
         for layer in self.encode:
             sam,pl_source = layer(sam_embed,pl_embed)
-        return sam + pl_source
+        return sam , pl_source
 
-class Decoder(nn.Module):
-    def __init__(self, in_channels=768, out_channels=19):
-        super(Decoder, self).__init__()
-        self.decoder = nn.Sequential(
-            nn.Conv2d(in_channels, 512, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # 17 -> 34
+class DecoderLinear(nn.Module):
+    def __init__(self, n_cls, patch_size, d_encoder,img_size,stride):
+        super().__init__()
 
-            nn.Conv2d(512, 256, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # 34 -> 68
+        self.d_encoder = d_encoder
+        self.patch_size = patch_size
+        self.n_cls = n_cls
+        self.num_token = math.floor((img_size + 2 * (patch_size // 2) - patch_size) / stride) + 1
 
-            nn.Conv2d(256, 128, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # 68 -> 136
-
-            nn.Conv2d(128, 64, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=8, mode='bilinear', align_corners=False),  # 136 -> 1088
-
-            nn.Conv2d(64, out_channels, kernel_size=3, padding=1),
-        )
+        self.head = nn.Linear(self.d_encoder, n_cls)
+        self.img_size = img_size
 
     def forward(self, x):
-        # x: [B, 289, 768] → [B, 768, 17, 17]
-        B, N, C = x.shape
-        assert N == 289, "Expected 289 tokens (17x17 grid)"
-        x = x.transpose(1, 2).contiguous().view(B, C, 17, 17)
-        x = self.decoder(x)
-        x = nn.functional.interpolate(x, size=(1024, 1024), mode='bilinear', align_corners=False)
-        return x
+        x = self.head(x)
+        x = rearrange(x, "b (h w) c -> b c h w", h=self.num_token)
+
+        return nn.functional.interpolate(x, size=(self.img_size, self.img_size), mode='bilinear', align_corners=False)
 
 class EncodeDecode(nn.Module):
-    def __init__(self,device):
+    def __init__(self,device,img_size=256,
+                 patch_size=7,
+                 stride=4,
+                 in_chans=1,
+                 embed_dim=768):
         super().__init__()
-        self.encode = Encoder(device)
-        self.decode = Decoder()
+        self.encode = Encoder(device,img_size=img_size,patch_size=patch_size,stride=stride,in_chans=in_chans,embed_dim=embed_dim)
+        self.fuse = nn.Sequential(
+            nn.Conv2d(in_channels=2*embed_dim,out_channels=embed_dim,kernel_size=1),
+            nn.GELU(),
+            nn.Conv2d(in_channels=embed_dim,out_channels=embed_dim//2,kernel_size=1),
+            nn.GELU(),
+            nn.Conv2d(in_channels=embed_dim//2,out_channels=embed_dim,kernel_size=1)
+        )
+        self.decode = DecoderLinear(n_cls=2,patch_size=patch_size,d_encoder=embed_dim,img_size=img_size,stride=stride)
+
+        self.num_token = self.decode.num_token
+
+        self.apply(init_weights)
+        
     def forward(self, sam, pl_source):
-        x = self.encode(sam,pl_source)
+        sam = F.interpolate(sam.float(),size=(256,256),mode='bilinear', align_corners=False)
+        pl_source = F.interpolate(pl_source.float(),size=(256,256),mode='bilinear', align_corners=False)
+        sam,pl_source = self.encode(sam,pl_source)
+        sam = rearrange(sam, "b (h w) c -> b c h w", h=self.num_token)
+        pl_source = rearrange(pl_source, "b (h w) c -> b c h w", h=self.num_token)
+        x = torch.cat([sam,pl_source],dim=1) 
+        x = self.fuse(x)
+        x = rearrange(x, "b c h w -> b (h w) c", h=self.num_token)
         return self.decode(x)
