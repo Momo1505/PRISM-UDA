@@ -44,6 +44,8 @@ import torch.nn as nn
 from matplotlib.colors import ListedColormap
 from mmseg.datasets import CityscapesDataset
 from mmseg.models.uda.refinement import EncodeDecode
+from mmseg.models.uda.swinir_backbone import MGDNRefinement
+from transformer import Refine
 from torch.cuda.amp.grad_scaler import GradScaler
 import json
 #from mmseg.models.uda.refinement import EncodeDecode
@@ -244,24 +246,22 @@ class DACS(UDADecorator):
             network = network.to(device)
             optimizer = torch.optim.Adam(params=network.parameters(), lr=0.0001)
         # resizing the tensors
-        pl_source = pl_source.unsqueeze(1)
         gt_source = F.interpolate(gt_source.float(),size=(256,256),mode='bilinear', align_corners=False)
         network.train()
         #ce_loss = torch.nn.BCEWithLogitsLoss() #uncomment for binary
         ce_loss = nn.CrossEntropyLoss(ignore_index=255,weight=class_weight.to(device)) #For multilabel
+        pl_source = pl_source.unsqueeze(1)
         #concat = torch.cat((pl_source, sam_source), dim=1).float()
-        sam_source = sam_source.float()
-        pl_source =  pl_source.float()
+        
+        pred = network(sam_source,pl_source)
+        print("pred_shape", pred.shape, "pred_unique", np.unique(pred.detach().cpu().numpy()))
+        print("pred_shape", gt_source.shape, "pred_unique", np.unique(gt_source.detach().cpu().numpy()))
+        #loss = ce_loss(pred, gt_source.float()) #uncomment for binary
+        loss = ce_loss(pred, gt_source.squeeze(1).long()) #for multilabel
         optimizer.zero_grad()
-        with torch.cuda.amp.autocast():
-            pred = network(pl_source,sam_source)
-            #loss = ce_loss(pred, gt_source.float()) #uncomment for binary
-            loss = ce_loss(pred, gt_source.squeeze(1).long()) #for multilabel
-        self.scaler.scale(loss).backward()
-        self.scaler.step(optimizer)
-        self.scaler.update()
-
+        loss.backward()
         self.refin_loss_list.append(loss.item())
+        optimizer.step()
         self.plot_loss_evolution(self.refin_loss_list,plot_name="refin_loss.png")
 
         return network, optimizer
@@ -584,8 +584,7 @@ class DACS(UDADecorator):
                     self.network.eval()
                     pseudo_label = pseudo_label.unsqueeze(1)
                     #concat = torch.cat((pseudo_label, target_sam), dim=1).float()
-                    with torch.cuda.amp.autocast():
-                        pseudo_label_ref = self.network(pseudo_label,target_sam)
+                    pseudo_label_ref = self.network(target_sam,pseudo_label)
                     pseudo_label = pseudo_label.squeeze(1)
 
                     softmax = torch.nn.Softmax(dim=1)
@@ -613,20 +612,20 @@ class DACS(UDADecorator):
                     )
 
                     # Plot the images
-                    axs[0].imshow(target_img[j].cpu().numpy()[0, :, :])
+                    axs[0].imshow(target_img[j].cpu().numpy().astype(np.float32)[0, :, :])
                     axs[0].set_title('Target Image')
 
-                    subplotimg(axs[1],pseudo_label[j].cpu().numpy()[:, :],'Pseudo Label')
+                    subplotimg(axs[1],pseudo_label[j].cpu().numpy().astype(np.float32)[:, :],'Pseudo Label')
                     #axs[1].imshow(pseudo_label[j].cpu().numpy()[:, :], cmap=cityscapes_cmap)
                     #axs[1].set_title('Pseudo Label')
 
-                    axs[2].imshow(target_sam[j].cpu().numpy()[0, :, :], cmap='gray')
+                    axs[2].imshow(target_sam[j].cpu().numpy().astype(np.float32)[0, :, :], cmap='gray')
                     axs[2].set_title('Target SAM')
 
-                    axs[3].imshow(pseudo_label_ref[j].cpu().numpy()[0, :, :], cmap='gray')  # New plot
+                    axs[3].imshow(pseudo_label_ref[j].cpu().numpy().astype(np.float32)[0, :, :], cmap='gray')  # New plot
                     axs[3].set_title('Pseudo Label Ref')
 
-                    subplotimg(axs[4],pseudo_label_ref2[j].cpu().numpy()[:, :],'pl_after_post')
+                    subplotimg(axs[4],pseudo_label_ref2[j].cpu().numpy().astype(np.float32)[:, :],'pl_after_post')
                     # axs[4].imshow(pseudo_label_ref2[j].cpu().numpy()[0, :, :], cmap=cityscapes_cmap)  # New plot
                     # axs[4].set_title('pl_after_post')
 
@@ -649,7 +648,7 @@ class DACS(UDADecorator):
                     #For multilabel segmentation
                     softmax = torch.nn.Softmax(dim=1)
                     pseudo_label = torch.argmax(softmax(pseudo_label_ref),axis=1).unsqueeze(1)
-                    save_segmentation_map(pseudo_label.squeeze().detach().cpu().numpy(), os.path.join(out_dir,
+                    save_segmentation_map(pseudo_label.squeeze().detach().cpu().numpy().astype(np.float32), os.path.join(out_dir,
                                         f'{(self.local_iter + 1):06d}_pl_raffiné.png'))
 
                     #Let it uncommented for both
