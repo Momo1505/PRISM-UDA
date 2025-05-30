@@ -45,7 +45,6 @@ from matplotlib.colors import ListedColormap
 from mmseg.datasets import CityscapesDataset
 from mmseg.models.uda.refinement import EncodeDecode
 from mmseg.models.uda.swinir_backbone import MGDNRefinement
-from transformer import Refine
 from torch.cuda.amp.grad_scaler import GradScaler
 import json
 #from mmseg.models.uda.refinement import EncodeDecode
