@@ -456,7 +456,7 @@ class DACS(UDADecorator):
             self._init_ema_weights()
             # assert _params_equal(self.get_ema_model(), self.get_model())
 
-        if self.local_iter > 0 and self.local_iter <=25000:
+        if self.local_iter > 0 and self.local_iter <=32500:
             self._update_ema(self.local_iter)
             # assert not _params_equal(self.get_ema_model(), self.get_model())
             # assert self.get_ema_model().training
@@ -573,13 +573,12 @@ class DACS(UDADecorator):
             #classes = torch.unique(gt_semantic_seg)
             #nclasses = classes.shape[0]
             #print("number of classes ?", nclasses)
-            if (self.local_iter < 7500):
-            #if ((self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and (self.local_iter < 12500)) or 
-                #(self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and (self.local_iter > 25000 and self.local_iter < 35000) )):
+            #if (self.local_iter < 7500):
+            if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and (self.local_iter >= 20000 and self.local_iter < 32500)) :
                 self.network, self.optimizer = self.train_refinement_source(pseudo_label_source, sam_pseudo_label, gt_semantic_seg, self.network, self.optimizer, dev,gt_class_weights)
 
-            if (self.local_iter < 7500):
-            #if self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) :
+            #if (self.local_iter < 7500):
+            if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and self.local_iter >= 20000) :
                 with torch.no_grad():
                     self.network.eval()
                     pseudo_label = pseudo_label.unsqueeze(1)
