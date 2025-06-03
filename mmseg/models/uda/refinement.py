@@ -159,7 +159,10 @@ class DecoderLinear(nn.Module):
             nn.Upsample(scale_factor=4,mode="bilinear",align_corners=False),
             nn.Conv2d(in_channels=d_encoder//2,out_channels=d_encoder//4,kernel_size=3,padding=1),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=d_encoder//4,out_channels=n_cls,kernel_size=3,padding=1)
+            nn.Upsample(scale_factor=2,mode="bilinear",align_corners=False),
+            nn.Conv2d(in_channels=d_encoder//4,out_channels=d_encoder//8,kernel_size=3,padding=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=d_encoder//8,out_channels=n_cls,kernel_size=3,padding=1)
         )
         self.img_size = img_size
 

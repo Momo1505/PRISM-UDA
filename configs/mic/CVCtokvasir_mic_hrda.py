@@ -98,6 +98,8 @@ runner = dict(type='IterBasedRunner', max_iters=40000)
 # Logging Configuration
 checkpoint_config = dict(by_epoch=False, interval=5000, max_keep_ckpts=3)
 evaluation = dict(interval=4000, metric='mIoU')
+# Resume training
+resume_from = 'work_dirs/local-basic/250602_1021_CVCtokvasir_fccc9/latest.pth'
 # Meta Information for Result Analysis
 name = 'CVCtokvasir'
 exp = 'basic'
