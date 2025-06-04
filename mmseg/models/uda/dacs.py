@@ -241,7 +241,7 @@ class DACS(UDADecorator):
         if network is None : #Initialization du réseau et tutti quanti
             #network = UNet() #For binary
             #network = UNet(n_classes=19) #For multilabel
-            network = EncodeDecode("cpu")
+            network = MGDNRefinement()
             network = network.to(device)
             optimizer = torch.optim.Adam(params=network.parameters(), lr=0.0001)
         # resizing the tensors
@@ -252,7 +252,7 @@ class DACS(UDADecorator):
         pl_source = pl_source.unsqueeze(1)
         #concat = torch.cat((pl_source, sam_source), dim=1).float()
         
-        pred = network(sam_source,pl_source)
+        pred = network(sam_source.float(),pl_source.float())
         print("pred_shape", pred.shape, "pred_unique", np.unique(pred.detach().cpu().numpy()))
         print("pred_shape", gt_source.shape, "pred_unique", np.unique(gt_source.detach().cpu().numpy()))
         #loss = ce_loss(pred, gt_source.float()) #uncomment for binary
@@ -456,7 +456,7 @@ class DACS(UDADecorator):
             self._init_ema_weights()
             # assert _params_equal(self.get_ema_model(), self.get_model())
 
-        if self.local_iter > 0 and self.local_iter <=10:
+        if self.local_iter > 0 and self.local_iter <=32500:
             self._update_ema(self.local_iter)
             # assert not _params_equal(self.get_ema_model(), self.get_model())
             # assert self.get_ema_model().training
@@ -573,12 +573,12 @@ class DACS(UDADecorator):
             #classes = torch.unique(gt_semantic_seg)
             #nclasses = classes.shape[0]
             #print("number of classes ?", nclasses)
-            #if (self.local_iter < 7500):
-            if (self.local_iter < 12500) :
+            if (self.local_iter < 7500):
+            #if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and (self.local_iter >= 20000 and self.local_iter < 32500)) :
                 self.network, self.optimizer = self.train_refinement_source(pseudo_label_source, sam_pseudo_label, gt_semantic_seg, self.network, self.optimizer, dev,gt_class_weights)
 
-            #if (self.local_iter < 7500):
-            if (self.local_iter >= 1) :
+            if (self.local_iter < 7500):
+            #if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and self.local_iter >= 20000) :
                 with torch.no_grad():
                     self.network.eval()
                     pseudo_label = pseudo_label.unsqueeze(1)

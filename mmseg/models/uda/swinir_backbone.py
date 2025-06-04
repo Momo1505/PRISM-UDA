@@ -469,7 +469,7 @@ class SpatialAttentionModule(nn.Module):
 class HDRTransformer_backbone(nn.Module):
 
     def __init__(self, img_size=256, patch_size=16, in_chans=20,
-                 embed_dim=12, depths=[3], num_heads=[6],
+                 embed_dim=12, depths=[2], num_heads=[6],
                  window_size=8, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
                  norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
@@ -624,7 +624,7 @@ class MGDNRefinement(nn.Module):
             decode = layer((sam_feature,pl_feature))
             sam_feature = sam_feature + decode
             pl_feature = pl_feature + decode
-        return self.classification(decode) * (sam_source + pl_source)
+        return self.classification(decode) 
 
 
 
