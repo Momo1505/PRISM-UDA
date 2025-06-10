@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from mmseg.models.uda.MGDN import DeepMuGIF
-
+import torch.nn.functional as F
 
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
@@ -605,7 +605,7 @@ def up_conv():
     return nn.Sequential(
             nn.Conv2d(12, 10, kernel_size=3, padding=1),
             nn.GELU(),
-            nn.Conv2d(10, 19, kernel_size=3,padding=1),
+            nn.Conv2d(10, 2, kernel_size=3,padding=1),
         )
 class MGDNRefinement(nn.Module):
     def __init__(self,num_blocks=5):
@@ -617,6 +617,8 @@ class MGDNRefinement(nn.Module):
         ])
         self.classification = up_conv()
     def forward(self,sam_source,pl_source):
+        sam_source = F.interpolate(sam_source.float(),size=(256,256),mode='bilinear', align_corners=False)
+        pl_source = F.interpolate(pl_source.float(),size=(256,256),mode='bilinear', align_corners=False)
         sam_feature = self.sam_feature(sam_source)
         pl_feature = self.pl_feature(pl_source)
 
