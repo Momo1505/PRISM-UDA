@@ -1,22 +1,12 @@
 #!/bin/bash
 
-sbatch slurm_scripts/normal_training/LW4toI3_mic_hrda.slurm
-sbatch slurm_scripts/normal_training/I3toWeiH_mic_hrda.slurm
-sbatch slurm_scripts/normal_training/LW4toWeiH_mic_hrda.slurm
-sbatch slurm_scripts/normal_training/WeiHtoLW4_mic_hrda.slurm
-sbatch slurm_scripts/normal_training/flairtot2_mic_hrda.slurm
-sbatch slurm_scripts/normal_training/CVCtokvasir_mic_hrda.slurm
-sbatch slurm_scripts/normal_training/I3toLW4_mic_hrda.slurm
-sbatch slurm_scripts/normal_training/kvasirtoCVC_mic_hrda.slurm
-sbatch slurm_scripts/normal_training/WeiHtoI3_mic_hrda.slurm
-sbatch slurm_scripts/normal_training/t2toflair_mic_hrda.slurm
-sbatch slurm_scripts/modified_training/LW4toI3_mic_hrda.slurm
-sbatch slurm_scripts/modified_training/I3toWeiH_mic_hrda.slurm
-sbatch slurm_scripts/modified_training/LW4toWeiH_mic_hrda.slurm
-sbatch slurm_scripts/modified_training/WeiHtoLW4_mic_hrda.slurm
-sbatch slurm_scripts/modified_training/flairtot2_mic_hrda.slurm
-sbatch slurm_scripts/modified_training/CVCtokvasir_mic_hrda.slurm
-sbatch slurm_scripts/modified_training/I3toLW4_mic_hrda.slurm
-sbatch slurm_scripts/modified_training/kvasirtoCVC_mic_hrda.slurm
-sbatch slurm_scripts/modified_training/WeiHtoI3_mic_hrda.slurm
-sbatch slurm_scripts/modified_training/t2toflair_mic_hrda.slurm
+sbatch slurm_scripts/LW4toI3_mic_hrda.slurm
+sbatch slurm_scripts/I3toWeiH_mic_hrda.slurm
+sbatch slurm_scripts/LW4toWeiH_mic_hrda.slurm
+sbatch slurm_scripts/WeiHtoLW4_mic_hrda.slurm
+sbatch slurm_scripts/flairtot2_mic_hrda.slurm
+sbatch slurm_scripts/CVCtokvasir_mic_hrda.slurm
+sbatch slurm_scripts/I3toLW4_mic_hrda.slurm
+sbatch slurm_scripts/kvasirtoCVC_mic_hrda.slurm
+sbatch slurm_scripts/WeiHtoI3_mic_hrda.slurm
+sbatch slurm_scripts/t2toflair_mic_hrda.slurm
