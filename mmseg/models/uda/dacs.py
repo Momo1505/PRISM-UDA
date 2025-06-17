@@ -39,7 +39,6 @@ from mmseg.models.utils.dacs_transforms import (denorm, get_class_masks,
 from mmseg.models.utils.visualization import prepare_debug_out, subplotimg
 from mmseg.utils.utils import downscale_label_ratio
 from plot import save_segmentation_map
-from mmseg.models.segmentors.base import UNet
 import torch.nn as nn
 from matplotlib.colors import ListedColormap
 from mmseg.datasets import CityscapesDataset
@@ -47,8 +46,8 @@ from mmseg.models.uda.refinement import EncodeDecode
 from mmseg.models.uda.swinir_backbone import MGDNRefinement
 from torch.cuda.amp.grad_scaler import GradScaler
 import json
-from model import UNet
 #from mmseg.models.uda.refinement import EncodeDecode
+from model import UNet
 
 
 def _params_equal(ema_model, model):
@@ -457,7 +456,7 @@ class DACS(UDADecorator):
             self._init_ema_weights()
             # assert _params_equal(self.get_ema_model(), self.get_model())
 
-        if self.local_iter > 0 and self.local_iter <=32500:
+        if self.local_iter > 0:
             self._update_ema(self.local_iter)
             # assert not _params_equal(self.get_ema_model(), self.get_model())
             # assert self.get_ema_model().training
@@ -575,11 +574,11 @@ class DACS(UDADecorator):
             #nclasses = classes.shape[0]
             #print("number of classes ?", nclasses)
             #if (self.local_iter < 7500):
-            if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and (self.local_iter >= 20000 and self.local_iter < 32500)) :
+            if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and self.local_iter < 12500):
                 self.network, self.optimizer = self.train_refinement_source(pseudo_label_source, sam_pseudo_label, gt_semantic_seg, self.network, self.optimizer, dev,gt_class_weights)
 
             #if (self.local_iter < 7500):
-            if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and self.local_iter >= 20000) :
+            if self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) :
                 with torch.no_grad():
                     self.network.eval()
                     pseudo_label = pseudo_label.unsqueeze(1)
