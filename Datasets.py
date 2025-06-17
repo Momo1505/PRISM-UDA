@@ -148,7 +148,7 @@ class WeihToI3(Dataset):
             self.val_paths = list(map(self.transform_to_label,self.pl_paths))
 
 
-        self.transform = transforms.Resize((256,256))
+        self.transform = transforms.Resize((1024,1024))
 
     def __len__(self):
         return len(self.pl_paths)

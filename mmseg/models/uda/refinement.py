@@ -24,35 +24,24 @@ class Guidance(nn.Module):
         self.scale = qk_scale or head_dim**-0.5
 
         self.q_sam = nn.Linear(dim, dim, bias=qkv_bias) 
-        self.q_pl_source = nn.Linear(dim, dim, bias=qkv_bias)
 
         self.kv_sam = nn.Linear(dim, dim * 2, bias=qkv_bias)
-        self.kv_pl_source = nn.Linear(dim, dim * 2, bias=qkv_bias)
 
         self.attn_drop_sam = nn.Dropout(attn_drop) 
-        self.attn_pl_source = nn.Dropout(attn_drop)
 
         self.proj_sam = nn.Linear(dim, dim) 
-        self.proj_pl_source = nn.Linear(dim, dim)
 
         self.proj_drop_sam = nn.Dropout(proj_drop)
-        self.proj_pl_source = nn.Dropout(proj_drop) 
 
 
-    def forward(self, sam,pl_source):
+    def forward(self, sam):
         B, N, C = sam.shape
         q_sam = self.q_sam(sam).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1,3).contiguous()
-
-        q_pl_source = self.q_pl_source(pl_source).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1,3).contiguous()
         
-
         kv_sam = self.kv_sam(sam).reshape(B, -1, 2, self.num_heads,C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
         k_sam, v_sam = kv_sam[0], kv_sam[1]
 
-        kv_pl_source = self.kv_pl_source(pl_source).reshape(B, -1, 2, self.num_heads,C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
-        k_pl_source , v_pl_source  = kv_pl_source[0], kv_pl_source[1]
-
-        attn_sam = (q_pl_source @ k_sam.transpose(-2, -1).contiguous()) * self.scale
+        attn_sam = (q_sam @ k_sam.transpose(-2, -1).contiguous()) * self.scale
         attn_sam = attn_sam.softmax(dim=-1)
         attn_sam = self.attn_drop_sam(attn_sam)
 
@@ -60,15 +49,7 @@ class Guidance(nn.Module):
         sam_attention = self.proj_sam(sam_attention)
         guidance_sam = self.proj_drop_sam(sam_attention + sam)
 
-        attn_pl_source = (q_sam @ k_pl_source.transpose(-2, -1).contiguous()) * self.scale
-        attn_pl_source = attn_pl_source.softmax(dim=-1)
-        attn_pl_source = self.attn_pl_source(attn_pl_source)
-
-        attn_pl_source = (attn_pl_source @ v_pl_source).transpose(1, 2).contiguous().reshape(B, N, C)
-        attn_pl_source = self.proj_sam(attn_pl_source)
-        guidance_pl_source = self.proj_drop_sam(attn_pl_source + pl_source)
-
-        return guidance_sam,guidance_pl_source
+        return guidance_sam
 
 def init_weights(m):
         if isinstance(m, nn.Linear):
@@ -117,28 +98,27 @@ class PatchEmbed(nn.Module):
 
         return x
 class Encoder(nn.Module):
-    def __init__(self,device,num_blocks=21,img_size=256,
+    def __init__(self,device="cpu",num_blocks=21,img_size=64,
                  patch_size=8,
                  stride=8,
                  in_chans=1,
                  embed_dim=768):
         super().__init__()
         self.sam_embed = PatchEmbed(img_size=img_size,patch_size=patch_size,stride=stride,in_chans=in_chans,embed_dim=embed_dim)
-        num_seq = self.sam_embed.num_tokens
-        self.pos_embed = nn.Embedding(num_seq,embed_dim)
-        self.register_buffer("positions",torch.arange(num_seq,device=device))
+        self.num_seq = self.sam_embed.num_tokens
+        self.pos_embed = nn.Embedding(self.num_seq,embed_dim)
+        self.register_buffer("positions",torch.arange(self.num_seq,device=device))
 
         self.encode = nn.ModuleList([Guidance(embed_dim) for _ in range(num_blocks)])
 
 
-    def forward(self, sam, pl_source):
+    def forward(self, sam):
         positions = self.pos_embed(self.positions)
         sam_embed = self.sam_embed(sam) + positions
-        pl_embed = pl_source + positions
 
         for layer in self.encode:
-            sam,pl_source = layer(sam_embed,pl_embed)
-        return sam , pl_source
+            sam = layer(sam_embed)
+        return sam 
 
 class DecoderLinear(nn.Module):
     def __init__(self, n_cls, patch_size, d_encoder,img_size,stride):
