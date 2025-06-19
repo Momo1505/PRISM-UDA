@@ -385,59 +385,38 @@ class OutConv(nn.Module):
         return self.conv(x)
 
 class UNet(nn.Module):
-    def __init__(self, in_channel=2, n_classes=1, norm_layer="bn", bilinear=False):
+    def __init__(self, in_channel=3, n_classes=2, norm_layer="bn", bilinear=False):
         super(UNet, self).__init__()
         self.in_channel = in_channel
         self.n_classes = n_classes
         self.bilinear = bilinear
         self.norm_layer = norm_layer
-        in_chans = 512
-        embed_dim = in_chans * 2
 
-        self.transformer_encoder = Encoder(in_chans=in_chans,embed_dim=embed_dim)
-        self.num_token = self.transformer_encoder.num_seq
-
-        self.upsample = nn.Sequential(
-            nn.Upsample(scale_factor=2,mode="bilinear",align_corners=False),
-            nn.Conv2d(in_channels=embed_dim,out_channels=embed_dim//2,kernel_size=3,padding=1),
-            nn.LeakyReLU(),
-            nn.Upsample(scale_factor=2,mode="bilinear",align_corners=False),
-            nn.Conv2d(in_channels=embed_dim//2,out_channels=embed_dim,kernel_size=3,padding=1),
-        )
-
-        self.inc = DoubleConvPerso(in_channel, 32, norm_layer)
-        self.down1 = Down(32, 64, norm_layer,)
-        self.down2 = Down(64, 128, norm_layer,)
-        self.down3 = Down(128, 256, norm_layer,)
+        self.inc = DoubleConvPerso(in_channel, 64, norm_layer)
+        self.down1 = Down(64, 128, norm_layer)
+        self.down2 = Down(128, 256, norm_layer)
+        self.down3 = Down(256, 512, norm_layer)
         factor = 2 if bilinear else 1
-        self.down4 = Down(256, in_chans, norm_layer,)
-        self.up0 = Up(embed_dim, in_chans , norm_layer, bilinear=bilinear,)
-        self.up1 = Up(in_chans, 256 // factor, norm_layer, bilinear=bilinear,)
-        self.up2 = Up(256, 128 // factor, norm_layer, bilinear=bilinear,)
-        self.up3 = Up(128, 64 // factor, norm_layer, bilinear=bilinear,)
-        self.up4 = Up(64, 32, norm_layer, bilinear=bilinear,)
-        self.outc = OutConv(32, n_classes)
+        self.down4 = Down(512, 1024 // factor, norm_layer)
+        self.up1 = Up(1024, 512 // factor, norm_layer, bilinear)
+        self.up2 = Up(512, 256 // factor, norm_layer, bilinear)
+        self.up3 = Up(256, 128 // factor, norm_layer, bilinear)
+        self.up4 = Up(128, 64, norm_layer, bilinear)
+        self.outc = OutConv(64, n_classes)
 
-    def forward(self, sam,pl):
-        #sam = F.interpolate(sam.float(),size=(256,256),mode='bilinear', align_corners=False)
-        #pl = F.interpolate(pl.float(),size=(256,256),mode='bilinear', align_corners=False)
-
-        x = torch.cat((pl, sam), dim=1)
-
+    def forward(self, image,sam,pl):
+        image = F.interpolate(image.float(),size=(256,256),mode='bilinear', align_corners=False)
+        sam = F.interpolate(sam.float(),size=(256,256),mode='bilinear', align_corners=False)
+        pl = F.interpolate(pl.float(),size=(256,256),mode='bilinear', align_corners=False)
+        x = torch.cat([image,sam,pl],dim=1)
         x1 = self.inc(x)
         d1 = self.down1(x1)
         d2 = self.down2(d1)
         d3 = self.down3(d2)
         d4 = self.down4(d3)
-        
-        d5 = self.transformer_encoder(d4)
-        
-        d5 = rearrange(d5, "b (h w) c -> b c h w", h=int(self.num_token**0.5))
-        d5 = self.upsample(d5)
-        u0 = self.up0(d5,d4)
-        u1 = self.up1(u0, d3)
+        u1 = self.up1(d4, d3)
         u2 = self.up2(u1, d2)
         u3 = self.up3(u2, d1)
         u4 = self.up4(u3, x1)
         logits = self.outc(u4)
-        return logits 
+        return logits

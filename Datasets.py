@@ -140,18 +140,24 @@ class WeihToI3(Dataset):
         train_size = int(len(self.pl_paths)*0.7)
         if mode == "train":
             self.pl_paths = self.pl_paths[:train_size]
+            self.images = list(map(self.transform_to_images,self.pl_paths))
             self.sam_paths = list(map(self.transform_to_sam,self.pl_paths))
             self.val_paths = list(map(self.transform_to_label,self.pl_paths))
         else:
             self.pl_paths = self.pl_paths[train_size:]
+            self.images = list(map(self.transform_to_images,self.pl_paths))
             self.sam_paths = list(map(self.transform_to_sam,self.pl_paths))
             self.val_paths = list(map(self.transform_to_label,self.pl_paths))
 
 
-        self.transform = transforms.Resize((1024,1024))
+        self.transform = transforms.Resize((256,256))
 
     def __len__(self):
         return len(self.pl_paths)
+    
+    def transform_to_images(self,path:str):
+        path = path.replace("pl_preds","images")
+        return path
 
     def transform_to_label(self,path:str):
         path = path.replace("pl_preds","labels")
@@ -173,7 +179,8 @@ class WeihToI3(Dataset):
         return tensor(img).unsqueeze(0)
 
     def __getitem__(self, index):
+        image = self.open_image(self.images[index])
         pl_image = self.open_image(self.pl_paths[index])
         sam_image = self.open_image(self.sam_paths[index])
         gt_image  = self.open_image(self.val_paths[index])
-        return pl_image, sam_image, gt_image
+        return image,pl_image, sam_image, gt_image

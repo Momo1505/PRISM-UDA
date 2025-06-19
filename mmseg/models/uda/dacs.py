@@ -43,7 +43,7 @@ from mmseg.models.segmentors.base import UNet
 import torch.nn as nn
 from matplotlib.colors import ListedColormap
 from mmseg.datasets import CityscapesDataset
-from mmseg.models.uda.refinement import EncodeDecode
+#from mmseg.models.uda.refinement import EncodeDecode
 from mmseg.models.uda.swinir_backbone import MGDNRefinement
 from torch.cuda.amp.grad_scaler import GradScaler
 import json
@@ -238,11 +238,11 @@ class DACS(UDADecorator):
         # Return True if sliding mean has decreased
         return second_half_mean < first_half_mean
     
-    def train_refinement_source(self, pl_source, sam_source, gt_source, network, optimizer, device,class_weight): #ADDED
+    def train_refinement_source(self,mixed_image, pl_source, sam_source, gt_source, network, optimizer, device,class_weight): #ADDED
         if network is None : #Initialization du réseau et tutti quanti
             #network = UNet() #For binary
             #network = UNet(n_classes=19) #For multilabel
-            network = UNet(2,2)
+            network = UNet(5,2)
             network = network.to(device)
             optimizer = torch.optim.Adam(params=network.parameters(), lr=0.0001)
         # resizing the tensors
@@ -253,7 +253,7 @@ class DACS(UDADecorator):
         pl_source = pl_source.unsqueeze(1)
         #concat = torch.cat((pl_source, sam_source), dim=1).float()
         
-        pred = network(sam_source,pl_source)
+        pred = network(mixed_image,sam_source,pl_source)
         print("pred_shape", pred.shape, "pred_unique", np.unique(pred.detach().cpu().numpy()))
         print("pred_shape", gt_source.shape, "pred_unique", np.unique(gt_source.detach().cpu().numpy()))
         #loss = ce_loss(pred, gt_source.float()) #uncomment for binary
@@ -457,7 +457,7 @@ class DACS(UDADecorator):
             self._init_ema_weights()
             # assert _params_equal(self.get_ema_model(), self.get_model())
 
-        if self.local_iter > 0 and self.local_iter <=32500:
+        if self.local_iter > 0:
             self._update_ema(self.local_iter)
             # assert not _params_equal(self.get_ema_model(), self.get_model())
             # assert self.get_ema_model().training
@@ -575,16 +575,16 @@ class DACS(UDADecorator):
             #nclasses = classes.shape[0]
             #print("number of classes ?", nclasses)
             #if (self.local_iter < 7500):
-            if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and (self.local_iter >= 20000 and self.local_iter < 32500)) :
-                self.network, self.optimizer = self.train_refinement_source(pseudo_label_source, sam_pseudo_label, gt_semantic_seg, self.network, self.optimizer, dev,gt_class_weights)
+            if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and (self.local_iter < 12500)) :
+                self.network, self.optimizer = self.train_refinement_source(img,pseudo_label_source, sam_pseudo_label, gt_semantic_seg, self.network, self.optimizer, dev,gt_class_weights)
 
             #if (self.local_iter < 7500):
-            if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and self.local_iter >= 20000) :
+            if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter)) :
                 with torch.no_grad():
                     self.network.eval()
                     pseudo_label = pseudo_label.unsqueeze(1)
                     #concat = torch.cat((pseudo_label, target_sam), dim=1).float()
-                    pseudo_label_ref = self.network(target_sam,pseudo_label)
+                    pseudo_label_ref = self.network(target_img,target_sam,pseudo_label)
                     pseudo_label = pseudo_label.squeeze(1)
 
                     softmax = torch.nn.Softmax(dim=1)

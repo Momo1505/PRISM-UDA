@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from timm.models.layers import DropPath, to_2tuple,trunc_normal_
 import math
 from einops import rearrange
-
+import pdb
 class Guidance(nn.Module):
 
     def __init__(self,
@@ -24,24 +24,35 @@ class Guidance(nn.Module):
         self.scale = qk_scale or head_dim**-0.5
 
         self.q_sam = nn.Linear(dim, dim, bias=qkv_bias) 
+        self.q_pl_source = nn.Linear(dim, dim, bias=qkv_bias)
 
         self.kv_sam = nn.Linear(dim, dim * 2, bias=qkv_bias)
+        self.kv_pl_source = nn.Linear(dim, dim * 2, bias=qkv_bias)
 
         self.attn_drop_sam = nn.Dropout(attn_drop) 
+        self.attn_pl_source = nn.Dropout(attn_drop)
 
         self.proj_sam = nn.Linear(dim, dim) 
+        self.proj_pl_source = nn.Linear(dim, dim)
 
         self.proj_drop_sam = nn.Dropout(proj_drop)
+        self.proj_pl_source = nn.Dropout(proj_drop) 
 
 
-    def forward(self, sam):
+    def forward(self, sam,pl_source):
         B, N, C = sam.shape
         q_sam = self.q_sam(sam).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1,3).contiguous()
+
+        q_pl_source = self.q_pl_source(pl_source).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1,3).contiguous()
         
+
         kv_sam = self.kv_sam(sam).reshape(B, -1, 2, self.num_heads,C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
         k_sam, v_sam = kv_sam[0], kv_sam[1]
 
-        attn_sam = (q_sam @ k_sam.transpose(-2, -1).contiguous()) * self.scale
+        kv_pl_source = self.kv_pl_source(pl_source).reshape(B, -1, 2, self.num_heads,C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
+        k_pl_source , v_pl_source  = kv_pl_source[0], kv_pl_source[1]
+
+        attn_sam = (q_pl_source @ k_sam.transpose(-2, -1).contiguous()) * self.scale
         attn_sam = attn_sam.softmax(dim=-1)
         attn_sam = self.attn_drop_sam(attn_sam)
 
@@ -49,7 +60,15 @@ class Guidance(nn.Module):
         sam_attention = self.proj_sam(sam_attention)
         guidance_sam = self.proj_drop_sam(sam_attention + sam)
 
-        return guidance_sam
+        attn_pl_source = (q_sam @ k_pl_source.transpose(-2, -1).contiguous()) * self.scale
+        attn_pl_source = attn_pl_source.softmax(dim=-1)
+        attn_pl_source = self.attn_pl_source(attn_pl_source)
+
+        attn_pl_source = (attn_pl_source @ v_pl_source).transpose(1, 2).contiguous().reshape(B, N, C)
+        attn_pl_source = self.proj_sam(attn_pl_source)
+        guidance_pl_source = self.proj_drop_sam(attn_pl_source + pl_source)
+
+        return guidance_sam,guidance_pl_source
 
 def init_weights(m):
         if isinstance(m, nn.Linear):
@@ -67,9 +86,9 @@ class PatchEmbed(nn.Module):
     """Image to Patch Embedding."""
 
     def __init__(self,
-                 img_size=256,
-                 patch_size=7,
-                 stride=4,
+                 img_size=1024,
+                 patch_size=16,
+                 stride=16,
                  in_chans=1,
                  embed_dim=768):
         super().__init__()
@@ -87,8 +106,8 @@ class PatchEmbed(nn.Module):
             kernel_size=patch_size,
             stride=stride)
         self.norm = nn.LayerNorm(embed_dim)
-        token = math.floor((img_size[0] + 2 * (patch_size[0] // 2) - patch_size[0]) / stride) 
-        self.num_tokens= token ** 2
+        token = math.floor((img_size[0] + 2 * (patch_size[0] // 2) - patch_size[0]) / stride)
+        self.num_tokens= token 
 
     def forward(self, x):
         x = self.proj(x)
@@ -97,88 +116,149 @@ class PatchEmbed(nn.Module):
         x = self.norm(x)
 
         return x
+
+
+class ConvWithBn(nn.Module):
+    def __init__(self,in_channels: int, out_channels: int, kernel_size: int=3, stride: int = 1, padding:int=1):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Conv2d(in_channels=in_channels,out_channels=out_channels,kernel_size=kernel_size,stride=stride,padding=padding),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.ReLU()
+        )
+    def forward(self,x):
+        return self.layers(x)
+
+
+class DeconvWithBN(nn.Module):
+    def __init__(self,in_channels: int, out_channels: int):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            ConvWithBn(in_channels=in_channels,out_channels=out_channels)
+        )
+    
+    def forward(self,x):
+        return self.layers(x)
+
+class Deconv(nn.Module):
+    def __init__(self,in_channels: int, out_channels: int):
+        super().__init__()
+        self.deconv = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            nn.Conv2d(in_channels=in_channels,out_channels=out_channels,kernel_size=3,stride=1,padding=1),
+        )
+    
+    def forward(self,x):
+        return self.deconv(x)
+
+class Classification(nn.Module):
+    def __init__(self,in_channels: int,out_channels: int, kernel_size: int=1, stride: int = 1, padding:int=0):
+        super().__init__()
+        self.out = nn.Sequential(
+            ConvWithBn(in_channels=in_channels,out_channels=in_channels//2),
+            ConvWithBn(in_channels=in_channels//2,out_channels=out_channels),
+            nn.Conv2d(in_channels=out_channels,out_channels=out_channels,kernel_size=kernel_size,stride=stride,padding=padding)
+        )
+
+    def forward(self,x):
+        return self.out(x)
+
+class Upsample(nn.Module):
+    def __init__(self,in_channels: int, out_channels: int):
+        super().__init__()
+        self.up = nn.Sequential(ConvWithBn(in_channels=in_channels,out_channels=in_channels//2),
+                                ConvWithBn(in_channels=in_channels//2,out_channels=in_channels),
+                                Deconv(in_channels=in_channels,out_channels=out_channels))
+
+    def forward(self,x):
+        return self.up(x)
+
+class DeconvAndUp(nn.Module):
+    def __init__(self,m:nn.ModuleList):
+        super().__init__()
+        self.m = m
+    def forward(self,skip,latent):
+        skip = self.m[0](skip)
+        x = torch.cat([skip,latent],dim=1)
+        return self.m[1](x)
+
+class Decoder(nn.Module):
+    def __init__(self,embed_dim,num_token):
+        super().__init__()
+        self.z_12 = nn.Sequential(DeconvWithBN(embed_dim,out_channels=256),DeconvWithBN(256,out_channels=256))
+
+        self.z_9 = DeconvAndUp(nn.ModuleList([
+            nn.Sequential(DeconvWithBN(in_channels=embed_dim,out_channels=embed_dim//2),DeconvWithBN(in_channels=embed_dim//2,out_channels=256)),
+            Upsample(in_channels=512,out_channels=128)
+        ]))
+
+        self.z_6 = DeconvAndUp(nn.ModuleList([
+            nn.Sequential(DeconvWithBN(in_channels=embed_dim,out_channels=embed_dim//2),DeconvWithBN(in_channels=embed_dim//2,out_channels=256),DeconvWithBN(in_channels=256,out_channels=128)),
+            Upsample(in_channels=256,out_channels=64)
+        ]))
+        self.z_3 = DeconvAndUp(nn.ModuleList([
+            nn.Sequential(DeconvWithBN(in_channels=embed_dim,out_channels=embed_dim//2),DeconvWithBN(in_channels=embed_dim//2,out_channels=256),DeconvWithBN(in_channels=256,out_channels=128),DeconvWithBN(in_channels=128,out_channels=64)),
+            Upsample(in_channels=128,out_channels=32)
+        ])
+)
+        self.input_skip = nn.Sequential(
+            ConvWithBn(in_channels=1,out_channels=16),
+            ConvWithBn(in_channels=16,out_channels=32),
+        )
+
+        self.classification = Classification(in_channels=64,out_channels=2)
+        self.num_token = num_token
+
+    def forward(self,hidden:list):
+        latent = rearrange(hidden[-1], "b (h w) c -> b c h w", h=self.num_token)
+        z_12 = self.z_12(latent) # b,256,128,128
+        latent = rearrange(hidden[-2], "b (h w) c -> b c h w", h=self.num_token)
+        z_9 = self.z_9(latent,z_12)
+        latent = rearrange(hidden[-3], "b (h w) c -> b c h w", h=self.num_token)
+        z_6 = self.z_6(latent,z_9)
+
+        latent = rearrange(hidden[-4], "b (h w) c -> b c h w", h=self.num_token)
+        z_3 = self.z_3(latent,z_6)
+
+        x = torch.cat([
+            self.input_skip(hidden[-5]),
+            z_3
+        ],
+            dim=1)
+        return self.classification(x)
+
+
+
 class Encoder(nn.Module):
-    def __init__(self,device="cpu",num_blocks=21,img_size=64,
-                 patch_size=8,
-                 stride=8,
+    def __init__(self,device="cpu",num_blocks=12,img_size=1024,
+                 patch_size=32,
+                 stride=32,
                  in_chans=1,
                  embed_dim=768):
         super().__init__()
         self.sam_embed = PatchEmbed(img_size=img_size,patch_size=patch_size,stride=stride,in_chans=in_chans,embed_dim=embed_dim)
-        self.num_seq = self.sam_embed.num_tokens
-        self.pos_embed = nn.Embedding(self.num_seq,embed_dim)
-        self.register_buffer("positions",torch.arange(self.num_seq,device=device))
+        self.pl_embed = PatchEmbed(img_size=img_size,patch_size=patch_size,stride=stride,in_chans=in_chans,embed_dim=embed_dim)
+        num_seq = self.pl_embed.num_tokens ** 2
+        self.pos_embed = nn.Embedding(num_seq,embed_dim)
+        self.register_buffer("positions",torch.arange(num_seq,device=device))
 
         self.encode = nn.ModuleList([Guidance(embed_dim) for _ in range(num_blocks)])
+        self.decode = Decoder(embed_dim=embed_dim,num_token=self.pl_embed.num_tokens)
 
 
-    def forward(self, sam):
+    def forward(self, sam, pl_source):
         positions = self.pos_embed(self.positions)
         sam_embed = self.sam_embed(sam) + positions
+        pl_embed = self.pl_embed(pl_source) + positions
 
-        for layer in self.encode:
-            sam = layer(sam_embed)
-        return sam 
+        hidden = [sam+pl_source]
 
-class DecoderLinear(nn.Module):
-    def __init__(self, n_cls, patch_size, d_encoder,img_size,stride):
-        super().__init__()
-
-        self.d_encoder = d_encoder
-        self.patch_size = patch_size
-        self.n_cls = n_cls
-        self.num_token = math.floor((img_size + 2 * (patch_size // 2) - patch_size) / stride) 
-
-        self.head = nn.Sequential(
-            nn.Upsample(scale_factor=2,mode="bilinear",align_corners=False),
-            nn.Conv2d(in_channels=d_encoder,out_channels=d_encoder//2,kernel_size=3,padding=1),
-            nn.LeakyReLU(),
-            nn.Upsample(scale_factor=4,mode="bilinear",align_corners=False),
-            nn.Conv2d(in_channels=d_encoder//2,out_channels=d_encoder//4,kernel_size=3,padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=d_encoder//4,out_channels=n_cls,kernel_size=3,padding=1)
-        )
-        self.img_size = img_size
-
-    def forward(self, x):
-        x = rearrange(x, "b (h w) c -> b c h w", h=self.num_token)
-        x = self.head(x)
-
-        return nn.functional.interpolate(x, size=(self.img_size, self.img_size), mode='bilinear', align_corners=False)
-
-class EncodeDecode(nn.Module):
-    def __init__(self,device,img_size=256,
-                 patch_size=16,
-                 stride=16,
-                 in_chans=1,
-                 embed_dim=1024):
-        super().__init__()
-        self.encode = Encoder(device,img_size=img_size,patch_size=patch_size,stride=stride,in_chans=in_chans,embed_dim=embed_dim)
-        self.fuse = nn.Sequential(
-            nn.Conv2d(in_channels=2*embed_dim,out_channels=embed_dim,kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(in_channels=embed_dim,out_channels=embed_dim//2,kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(in_channels=embed_dim//2,out_channels=embed_dim,kernel_size=1)
-        )
-        self.decode = DecoderLinear(n_cls=2,patch_size=patch_size,d_encoder=embed_dim,img_size=img_size,stride=stride)
-
-        self.sam_skip = nn.Conv2d(2,2,kernel_size=3,padding=1)
-        self.pl_skip = nn.Conv2d(4,2,kernel_size=3,padding=1)
-
-
-        self.num_token = self.decode.num_token
-
-        self.apply(init_weights)
+        for i,layer in enumerate(self.encode):
+            sam,pl_source = layer(sam_embed,pl_embed)
+            if (i+1) % 3 == 0 :
+                hidden.append(sam + pl_source)
         
-    def forward(self, sam, pl_source):
+        return self.decode(hidden)
 
-        #sam = F.interpolate(sam.float(),size=(256,256),mode='bilinear', align_corners=False)
-        #pl_source = F.interpolate(pl_source.float(),size=(256,256),mode='bilinear', align_corners=False)
-        sam_latent,pl_source_latent = self.encode(sam,pl_source) # adding sam and pl as pl
-        sam_latent = rearrange(sam_latent, "b (h w) c -> b c h w", h=self.num_token)
-        pl_source_latent = rearrange(pl_source_latent, "b (h w) c -> b c h w", h=self.num_token)
-        x = torch.cat([sam_latent,pl_source_latent],dim=1) 
-        x = self.fuse(x)
-        x = rearrange(x, "b c h w -> b (h w) c", h=self.num_token)
-        return self.decode(x)
+
