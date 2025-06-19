@@ -8,7 +8,7 @@ _base_ = [
     # DAFormer Network Architecture
     '../_base_/models/daformer_sepaspp_mitb5.py',
     # GTA->Cityscapes High-Resolution Data Loading
-    '../_base_/datasets/uda_LW4_to_I3.py',
+    '../_base_/datasets/uda_CVCtokvasir.py',
     # DAFormer Self-Training
     '../_base_/uda/dacs_a999_fdthings.py',
     # AdamW Optimizer
@@ -81,9 +81,8 @@ uda = dict(
     mask_lambda=1,
     # Use random patch masking with a patch size of 64x64
     # and a mask ratio of 0.7
-    mask_generator=dict(type='block', mask_ratio=0.7, mask_block_size=64, _delete_=True),
-    source="LW4"
-        )
+    mask_generator=dict(
+        type='block', mask_ratio=0.7, mask_block_size=64, _delete_=True),source="CVC",iter_start=4000)
 # Optimizer Hyperparameters
 optimizer_config = None
 optimizer = dict(
@@ -100,9 +99,9 @@ runner = dict(type='IterBasedRunner', max_iters=40000)
 checkpoint_config = dict(by_epoch=False, interval=5000, max_keep_ckpts=3)
 evaluation = dict(interval=4000, metric='mIoU')
 # Meta Information for Result Analysis
-name = 'lw4toi3'
+name = 'CVCtokvasir'
 exp = 'basic'
-name_dataset = 'uda_LW4_to_I3'
+name_dataset = 'uda_CVCtokvasir'
 name_architecture = 'hrda1-512-0.1_daformer_sepaspp_sl_mitb5'
 name_encoder = 'mitb5'
 name_decoder = 'hrda1-512-0.1_daformer_sepaspp_sl'

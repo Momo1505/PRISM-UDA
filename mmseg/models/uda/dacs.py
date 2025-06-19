@@ -117,6 +117,7 @@ class DACS(UDADecorator):
         # getting the type of refinement
         #self.attention_type = cfg["attention_type"]
         self.source = cfg["source"]
+        self.iter_start = cfg["iter_start"]
 
         with open(f"data/{self.source}/sample_class_stats_dict.json","r") as of:
             self.sample_class_dict = json.load(of)
@@ -571,11 +572,11 @@ class DACS(UDADecorator):
             #nclasses = classes.shape[0]
             #print("number of classes ?", nclasses)
             #if (self.local_iter < 7500):
-            if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and self.local_iter < 12500):
+            if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and (self.local_iter >= self.iter_start and self.local_iter < 12500 + self.iter_start)):
                 self.network, self.optimizer = self.train_refinement_source(pseudo_label_source, sam_pseudo_label, gt_semantic_seg, self.network, self.optimizer, dev,gt_class_weights)
 
             #if (self.local_iter < 7500):
-            if self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) :
+            if self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and self.local_iter > self.iter_start:
                 with torch.no_grad():
                     self.network.eval()
                     pseudo_label = pseudo_label.unsqueeze(1)
