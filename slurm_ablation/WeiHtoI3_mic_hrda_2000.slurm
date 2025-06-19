@@ -12,5 +12,7 @@ module load cuda/cuda-11.2
 source ~/venv/prism-uda/bin/activate
 python --version
 echo 'START'
+cd ~/domain_adaptation
+git checkout ablation_studies_with_unet
 python run_experiments.py --config configs/mic/WeiHtoI3_mic_hrda_2000.py
 echo 'END'
