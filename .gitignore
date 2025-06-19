@@ -125,6 +125,7 @@ mmseg/.mim
 
 euler_log.txt
 jobs/
+ablations/
 configs/tmp_param.json
 configs/generated/
 *.pdf
