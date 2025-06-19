@@ -13,6 +13,5 @@ source ~/venv/prism-uda/bin/activate
 python --version
 echo 'START'
 cd ~/domain_adaptation
-git checkout ablation_studies_with_unet
 python run_experiments.py --config configs/mic/CVCtokvasir_mic_hrda_4000.py
 echo 'END'
