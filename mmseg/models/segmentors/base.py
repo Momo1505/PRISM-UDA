@@ -401,7 +401,10 @@ class UNet(nn.Module):
         self.up4 = Up(128, 64, norm_layer, bilinear)
         self.outc = OutConv(64, n_classes)
 
-    def forward(self, x):
+    def forward(self, sam,pl):
+        sam = F.interpolate(sam.float(),size=(256,256),mode='bilinear', align_corners=False)
+        pl = F.interpolate(pl.float(),size=(256,256),mode='bilinear', align_corners=False)
+        x = torch.cat([sam,pl],dim=1)
         x1 = self.inc(x)
         d1 = self.down1(x1)
         d2 = self.down2(d1)

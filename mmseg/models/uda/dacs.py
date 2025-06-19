@@ -44,8 +44,6 @@ import torch.nn as nn
 from matplotlib.colors import ListedColormap
 from mmseg.datasets import CityscapesDataset
 from mmseg.models.uda.refinement import EncodeDecode
-from mmseg.models.uda.swinir_backbone import MGDNRefinement
-from torch.cuda.amp.grad_scaler import GradScaler
 import json
 #from mmseg.models.uda.refinement import EncodeDecode
 
@@ -119,7 +117,6 @@ class DACS(UDADecorator):
         # getting the type of refinement
         #self.attention_type = cfg["attention_type"]
         self.source = cfg["source"]
-        self.scaler = GradScaler()
 
         with open(f"data/{self.source}/sample_class_stats_dict.json","r") as of:
             self.sample_class_dict = json.load(of)
@@ -241,7 +238,7 @@ class DACS(UDADecorator):
         if network is None : #Initialization du réseau et tutti quanti
             #network = UNet() #For binary
             #network = UNet(n_classes=19) #For multilabel
-            network = EncodeDecode("cpu")
+            network = UNet(in_channel=2,n_classes=2)
             network = network.to(device)
             optimizer = torch.optim.Adam(params=network.parameters(), lr=0.0001)
         # resizing the tensors
