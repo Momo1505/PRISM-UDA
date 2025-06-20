@@ -255,7 +255,7 @@ class DACS(UDADecorator):
         
         pred = network(mixed_image,sam_source,pl_source)
         print("pred_shape", pred.shape, "pred_unique", np.unique(pred.detach().cpu().numpy()))
-        print("pred_shape", gt_source.shape, "pred_unique", np.unique(gt_source.detach().cpu().numpy()))
+        print("pred_shape", gt_source.shape, "gt_source_unique", np.unique(gt_source.detach().cpu().numpy()))
         #loss = ce_loss(pred, gt_source.float()) #uncomment for binary
         loss = ce_loss(pred, gt_source.squeeze(1).long()) #for multilabel
         optimizer.zero_grad()
