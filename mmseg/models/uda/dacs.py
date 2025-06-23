@@ -46,6 +46,8 @@ from mmseg.datasets import CityscapesDataset
 from mmseg.models.uda.refinement import EncodeDecode
 import json
 #from mmseg.models.uda.refinement import EncodeDecode
+from mmseg.models.backbones.mix_transformer import MixVisionTransformer
+from mmseg.models.decode_heads import SegFormerHead
 
 
 def _params_equal(ema_model, model):
@@ -238,11 +240,11 @@ class DACS(UDADecorator):
         if network is None : #Initialization du réseau et tutti quanti
             #network = UNet() #For binary
             #network = UNet(n_classes=19) #For multilabel
-            network = UNet(in_channel=2,n_classes=2)
+            network = Refine()
             network = network.to(device)
             optimizer = torch.optim.Adam(params=network.parameters(), lr=0.0001)
         # resizing the tensors
-        gt_source = F.interpolate(gt_source.float(),size=(256,256),mode='bilinear', align_corners=False)
+        #gt_source = F.interpolate(gt_source.float(),size=(256,256),mode='bilinear', align_corners=False)
         network.train()
         #ce_loss = torch.nn.BCEWithLogitsLoss() #uncomment for binary
         ce_loss = nn.CrossEntropyLoss(ignore_index=255,weight=class_weight.to(device)) #For multilabel
@@ -807,3 +809,21 @@ class DACS(UDADecorator):
 
         return log_vars
     
+class Refine(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.encode = MixVisionTransformer(img_size=256,in_chans=2)
+        self.decode = SegFormerHead(
+            in_channels=[64, 128, 256, 512],  # from MIT-B2 for example
+            in_index=[0, 1, 2, 3],
+            channels=128,
+            num_classes=2,
+            decoder_params=dict(embed_dim=128,conv_kernel_size=1),norm_cfg=None
+        )
+    def forward(self,sam,pl):
+        img_size = sam.shape[-2:]
+        x = torch.cat([sam.float(),pl.float()],dim=1)
+        latent = self.encode(x)
+        decode = self.decode(latent)
+        output = F.interpolate(decode, size=img_size, mode='bilinear', align_corners=False)
+        return output
