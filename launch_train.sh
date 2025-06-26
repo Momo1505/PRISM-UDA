@@ -1,25 +1,12 @@
 #!/bin/bash
 
-sbatch slurm_scripts/LW4toI3_mic_hrda.slurm
-sbatch slurm_scripts/GTAtoCityscapes_refinement.slurm
-sbatch slurm_scripts/GTAtoCityscapes_attention.slurm
-sbatch slurm_scripts/GTAtoCityscapes_colour.slurm
-sbatch slurm_scripts/I3toWeiH_mic_hrda.slurm
-sbatch slurm_scripts/LW4toWeiH_mic_hrda.slurm
-sbatch slurm_scripts/GTAtoCityscapes_no_sam.slurm
-sbatch slurm_scripts/GTAtoCityscapes.slurm
-sbatch slurm_scripts/t2tot1_mic_hrda.slurm
-sbatch slurm_scripts/GTAtoCityscapes_autoencoder.slurm
-sbatch slurm_scripts/lw4-multitoi3-multi_mic_hrda.slurm
-sbatch slurm_scripts/WeiHtoLW4_mic_hrda.slurm
-sbatch slurm_scripts/flairtot2_mic_hrda.slurm
-sbatch slurm_scripts/t1tot2_mic_hrda.slurm
-sbatch slurm_scripts/i3-multitolw4-multi_mic_hrda.slurm
-sbatch slurm_scripts/CVCtokvasir_mic_hrda.slurm
-sbatch slurm_scripts/I3toLW4_mic_hrda.slurm
-sbatch slurm_scripts/kvasirtoCVC_mic_hrda.slurm
 sbatch slurm_scripts/WeiHtoI3_mic_hrda.slurm
-sbatch slurm_scripts/flairtot1_mic_hrda.slurm
+sbatch slurm_scripts/LW4toI3_mic_hrda.slurm
+sbatch slurm_scripts/I3toLW4_mic_hrda.slurm
+sbatch slurm_scripts/WeiHtoLW4_mic_hrda.slurm
+sbatch slurm_scripts/kvasirtoCVC_mic_hrda.slurm
+sbatch slurm_scripts/flairtot2_mic_hrda.slurm
 sbatch slurm_scripts/t2toflair_mic_hrda.slurm
-sbatch slurm_scripts/t1toflair_mic_hrda.slurm
-sbatch slurm_scripts/GTAtoCityscapes_smothing.slurm
+sbatch slurm_scripts/I3toWeiH_mic_hrda.slurm
+sbatch slurm_scripts/CVCtokvasir_mic_hrda.slurm
+sbatch slurm_scripts/LW4toWeiH_mic_hrda.slurm
