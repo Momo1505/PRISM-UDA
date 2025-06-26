@@ -247,7 +247,7 @@ class DACS(UDADecorator):
         #gt_source = F.interpolate(gt_source.float(),size=(256,256),mode='bilinear', align_corners=False)
         network.train()
         #ce_loss = torch.nn.BCEWithLogitsLoss() #uncomment for binary
-        ce_loss = nn.CrossEntropyLoss(ignore_index=255,weight=class_weight.to(device)) #For multilabel
+        ce_loss = nn.CrossEntropyLoss(ignore_index=255) #For multilabel
         pl_source = pl_source.unsqueeze(1)
         #concat = torch.cat((pl_source, sam_source), dim=1).float()
         
