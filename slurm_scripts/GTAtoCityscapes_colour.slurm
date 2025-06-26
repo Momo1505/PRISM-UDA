@@ -5,7 +5,7 @@
 #SBATCH --constraint="gpua100"
 #SBATCH --mail-user="mouhamed.sow@unistra.fr"
 #SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH -o jobs/i3-multitolw4-multi_mic_hrda.out
+#SBATCH -o jobs/GTAtoCityscapes_colour.out
 hostname
 module load python/python-3.8.18
 module load cuda/cuda-11.2
@@ -13,5 +13,5 @@ source ~/venv/prism-uda/bin/activate
 python --version
 
 cd ~/domain_adaptation
-python run_experiments.py --config configs/mic/i3-multitolw4-multi_mic_hrda.py
+python run_experiments.py --config configs/mic/GTAtoCityscapes_colour.py
 echo 'END'
