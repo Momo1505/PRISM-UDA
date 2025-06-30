@@ -94,7 +94,7 @@ optimizer = dict(
             norm=dict(decay_mult=0.0))))
 n_gpus = 1
 gpu_model = 'NVIDIATITANRTX'
-runner = dict(type='IterBasedRunner', max_iters=30000)
+runner = dict(type='IterBasedRunner', max_iters=40000)
 # Logging Configuration
 checkpoint_config = dict(by_epoch=False, interval=5000, max_keep_ckpts=3)
 evaluation = dict(interval=4000, metric='mIoU')
