@@ -48,6 +48,9 @@ from mmseg.models.uda.swinir_backbone import MGDNRefinement
 from torch.cuda.amp.grad_scaler import GradScaler
 import json
 #from mmseg.models.uda.refinement import EncodeDecode
+from get_results import calculate_iou_and_dice
+import pandas as pd
+from PIL import Image
 
 
 def _params_equal(ema_model, model):
@@ -120,6 +123,19 @@ class DACS(UDADecorator):
         #self.attention_type = cfg["attention_type"]
         self.source = cfg["source"]
         self.scaler = GradScaler()
+
+        # defining dataframe for logging
+        self.train_results_df = pd.DataFrame(columns=[
+            'iteration', 
+            'ema_vs_gt_iou', 'sam_vs_gt_iou', 'pl_vs_gt_iou', 
+            'ema_vs_pl_iou', 'sam_vs_pl_iou'
+        ])
+
+        self.test_results_df = pd.DataFrame(columns=[
+            'iteration', 
+            'ema_vs_gt_iou', 'sam_vs_gt_iou', 'pl_vs_gt_iou', 
+            'ema_vs_pl_iou', 'sam_vs_pl_iou'
+        ])
 
         with open(f"data/{self.source}/sample_class_stats_dict.json","r") as of:
             self.sample_class_dict = json.load(of)
@@ -245,7 +261,7 @@ class DACS(UDADecorator):
             network = network.to(device)
             optimizer = torch.optim.Adam(params=network.parameters(), lr=0.0001)
         # resizing the tensors
-        gt_source = F.interpolate(gt_source.float(),size=(256,256),mode='bilinear', align_corners=False)
+        gt_source = F.interpolate(gt_source.float(),size=(256,256),mode='nearest')
         network.train()
         #ce_loss = torch.nn.BCEWithLogitsLoss() #uncomment for binary
         ce_loss = nn.CrossEntropyLoss(ignore_index=255) #For multilabel
@@ -262,6 +278,13 @@ class DACS(UDADecorator):
         self.refin_loss_list.append(loss.item())
         optimizer.step()
         self.plot_loss_evolution(self.refin_loss_list,plot_name="refin_loss.png")
+
+        # logging the iou scores
+        pl = pred.argmax(dim=1).detach().cpu().long().numpy()
+        sam_source = F.interpolate(sam_source.float(),size=(256,256),mode='nearest').detach().cpu().long().numpy()
+        pl_source = F.interpolate(pl_source.float(),size=(256,256),mode='nearest').detach().cpu().long().numpy()
+
+        logging(pl_source, sam_source, gt_source.detach().cpu().long().numpy(),pl,self.train_results_df,self.local_iter)
 
         return network, optimizer
 
@@ -582,6 +605,7 @@ class DACS(UDADecorator):
                 with torch.no_grad():
                     self.network.eval()
                     pseudo_label = pseudo_label.unsqueeze(1)
+                    ema = pseudo_label.clone().detach().cpu()
                     #concat = torch.cat((pseudo_label, target_sam), dim=1).float()
                     pseudo_label_ref = self.network(target_sam,pseudo_label)
                     pseudo_label = pseudo_label.squeeze(1)
@@ -651,8 +675,16 @@ class DACS(UDADecorator):
                                         f'{(self.local_iter + 1):06d}_pl_raffiné.png'))
 
                     #Let it uncommented for both
-                    pseudo_label = F.interpolate(pseudo_label.float(),size=(1024,1024),mode='bilinear', align_corners=False).long()
+                    pl = pseudo_label.clone().detach().cpu()
+                    pseudo_label = F.interpolate(pseudo_label.float(),size=(1024,1024),mode='nearest').long()
                     pseudo_label = pseudo_label.squeeze(1)
+
+                    # target gt
+                    target_file_name = target_img_metas[0]["filename"].replace("images","labels")
+                    target_gt = np.array(Image.open(target_file_name ).convert("P"))
+                    target_sam = F.interpolate(target_sam.float(),size=(256,256),mode='nearest').long().detach().cpu().numpy()
+                    ema = F.interpolate(ema.float(),size=(256,256),mode='nearest').long().cpu().numpy()
+                    logging(ema, target_sam, target_gt,pl.long().numpy(),self.test_results_df,self.local_iter,False)
                 
 
             # Apply mixing
@@ -810,3 +842,37 @@ class DACS(UDADecorator):
 
         return log_vars
     
+def save_iou_plot(results_df, save_path="iou_plot.png"):
+    plt.figure(figsize=(8, 5))
+    plt.plot(results_df['iteration'], results_df['ema_vs_gt_iou'], label='EMA vs GT')
+    plt.plot(results_df['iteration'], results_df['sam_vs_gt_iou'], label='SAM vs GT')
+    plt.plot(results_df['iteration'], results_df['pl_vs_gt_iou'], label='PL vs GT')
+    plt.plot(results_df['iteration'], results_df['ema_vs_pl_iou'], label='EMA vs PL')
+    plt.plot(results_df['iteration'], results_df['sam_vs_pl_iou'], label='SAM vs PL')
+    plt.xlabel('Iteration')
+    plt.ylabel('IoU')
+    plt.title('IoU over Iterations')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+def logging(pl_source, sam_source, gt_source,pl,df,iteration,is_train=True):
+
+    ema_vs_gt,_ = calculate_iou_and_dice(pl_source,gt_source)
+    sam_vs_gt,_ = calculate_iou_and_dice(sam_source,gt_source)
+    pl_vs_gt,_ = calculate_iou_and_dice(pl,gt_source)
+    ema_vs_pl,_ = calculate_iou_and_dice(pl_source,pl)
+    sam_vs_pl,_ = calculate_iou_and_dice(sam_source,pl)
+
+    # Append to DataFrame
+    df.loc[len(df)] = [
+        iteration, 
+        ema_vs_gt, sam_vs_gt, pl_vs_gt, 
+        ema_vs_pl, sam_vs_pl
+    ]
+    plot_path = "./train_iou_plot.png" if is_train else "./test_iou_plot.png"
+    csv_path = "./train_iou_log_final.csv" if is_train else "./test_iou_log_final.csv"
+    save_iou_plot(df, save_path=plot_path)
+    df.to_csv(csv_path, index=False)

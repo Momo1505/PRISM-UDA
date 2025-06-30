@@ -196,8 +196,8 @@ class EncodeDecode(nn.Module):
         
     def forward(self, sam, pl_source):
 
-        sam = F.interpolate(sam.float(),size=(256,256),mode='bilinear', align_corners=False)
-        pl_source = F.interpolate(pl_source.float(),size=(256,256),mode='bilinear', align_corners=False)
+        sam = F.interpolate(sam.float(),size=(256,256),mode='nearest')
+        pl_source = F.interpolate(pl_source.float(),size=(256,256),mode='nearest')
         sam_latent,pl_source_latent = self.encode(sam,pl_source)
         sam_latent = rearrange(sam_latent, "b (h w) c -> b c h w", h=self.num_token)
         pl_source_latent = rearrange(pl_source_latent, "b (h w) c -> b c h w", h=self.num_token)
