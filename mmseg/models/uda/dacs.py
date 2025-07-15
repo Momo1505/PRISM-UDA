@@ -39,7 +39,7 @@ from mmseg.models.utils.dacs_transforms import (denorm, get_class_masks,
 from mmseg.models.utils.visualization import prepare_debug_out, subplotimg
 from mmseg.utils.utils import downscale_label_ratio
 from plot import save_segmentation_map
-from mmseg.models.segmentors.base import UNet
+#from mmseg.models.segmentors.base import UNet
 import torch.nn as nn
 from matplotlib.colors import ListedColormap
 from mmseg.datasets import CityscapesDataset
