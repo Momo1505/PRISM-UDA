@@ -19,12 +19,18 @@ def collect_env():
 
 
 def is_source_file(x):
-    if x.isdir() or x.name.endswith(('.py', '.sh', '.yml', '.json', '.txt')) \
-            and '.mim' not in x.name and 'jobs/' not in x.name:
-        # print(x.name)
-        return x
-    else:
+    # Exclude output/debug/work_dirs directories explicitly
+    exclude_dirs = ('work_dirs/', 'data/', 'refinement_results/', '__pycache__')
+
+    # Skip files in excluded directories
+    if any(part in x.name for part in exclude_dirs):
         return None
+
+    # Keep .py, .sh, .yml, etc., and directories not in exclude_dirs
+    if x.isdir() or x.name.endswith(('.py', '.sh', '.yml', '.json', '.txt')):
+        if '.mim' not in x.name and 'jobs/' not in x.name:
+            return x
+    return None
 
 
 def gen_code_archive(out_dir, file='code.tar.gz'):
