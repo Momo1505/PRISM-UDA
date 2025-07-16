@@ -422,7 +422,7 @@ class UNet(nn.Module):
         #sam = F.interpolate(sam.float(),size=(256,256),mode='bilinear', align_corners=False)
         #pl = F.interpolate(pl.float(),size=(256,256),mode='bilinear', align_corners=False)
 
-        x = torch.cat((pl, sam), dim=1)
+        x = torch.cat((pl.to(torch.float), sam.to(torch.float)), dim=1)
 
         x1 = self.inc(x)
         d1 = self.down1(x1)

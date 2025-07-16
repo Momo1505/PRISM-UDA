@@ -245,7 +245,7 @@ class DACS(UDADecorator):
             network = network.to(device)
             optimizer = torch.optim.Adam(params=network.parameters(), lr=0.0001)
         # resizing the tensors
-        gt_source = F.interpolate(gt_source.float(),size=(256,256),mode='bilinear', align_corners=False)
+        #gt_source = F.interpolate(gt_source.float(),size=(256,256),mode='bilinear', align_corners=False)
         network.train()
         #ce_loss = torch.nn.BCEWithLogitsLoss() #uncomment for binary
         ce_loss = nn.CrossEntropyLoss(ignore_index=255) #For multilabel
@@ -573,12 +573,12 @@ class DACS(UDADecorator):
             #classes = torch.unique(gt_semantic_seg)
             #nclasses = classes.shape[0]
             #print("number of classes ?", nclasses)
-            #if (self.local_iter < 7500):
-            if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and self.local_iter < 12500):
+            if (self.local_iter < 7500):
+            #if (self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) and self.local_iter < 12500):
                 self.network, self.optimizer = self.train_refinement_source(pseudo_label_source, sam_pseudo_label, gt_semantic_seg, self.network, self.optimizer, dev,gt_class_weights)
 
-            #if (self.local_iter < 7500):
-            if self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) :
+            if (self.local_iter < 7500):
+            #if self.is_sliding_mean_loss_decreased(self.masked_loss_list, self.local_iter) :
                 with torch.no_grad():
                     self.network.eval()
                     pseudo_label = pseudo_label.unsqueeze(1)
@@ -651,7 +651,7 @@ class DACS(UDADecorator):
                                         f'{(self.local_iter + 1):06d}_pl_raffiné.png'))
 
                     #Let it uncommented for both
-                    pseudo_label = F.interpolate(pseudo_label.float(),size=(1024,1024),mode='bilinear', align_corners=False).long()
+                    #pseudo_label = F.interpolate(pseudo_label.float(),size=(1024,1024),mode='bilinear', align_corners=False).long()
                     pseudo_label = pseudo_label.squeeze(1)
                 
 
