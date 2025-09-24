@@ -9,7 +9,7 @@ res*.txt
 
 # C extensions
 *.so
-
+*.tif
 # Distribution / packaging
 .Python
 build/
