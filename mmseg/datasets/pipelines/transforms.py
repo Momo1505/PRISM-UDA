@@ -515,11 +515,12 @@ class Normalize(object):
             default is true.
     """
 
-    def __init__(self, mean, std, to_rgb=True,from_3d=False):
+    def __init__(self, mean, std, to_rgb=True,from_3d=False,epsilon=1e-8):
         self.mean = np.array(mean, dtype=np.float32) # (C)
         self.std = np.array(std, dtype=np.float32) # (C)
         self.to_rgb = to_rgb
         self.from_3d = from_3d
+        self.epsilon= epsilon
 
     def __call__(self, results):
         """Call function to normalize images.
@@ -533,17 +534,19 @@ class Normalize(object):
         """
         if self.from_3d:
             assert results['img'].ndim == 4, f"Expected (C,D,H,W), got {results['img'].shape}"
-            mean = self.mean[:,None,None,None]
-            std = self.std[:,None,None,None]
-            results['img'] = (results['img'] - mean) / std
+            mean = np.mean(results['img'])
+            std = np.mean(results['img'])
+            results['img'] = (results['img'] - mean) / (std + self.epsilon)
             to_rgb = False
+            results['img_norm_cfg'] = dict(
+                mean=mean, std=std, to_rgb=to_rgb)
         else:
             results['img'] = mmcv.imnormalize(results['img'], self.mean, self.std,
                                           self.to_rgb)
             to_rgb = self.to_rgb
             
-        results['img_norm_cfg'] = dict(
-            mean=self.mean, std=self.std, to_rgb=to_rgb)
+            results['img_norm_cfg'] = dict(
+                mean=self.mean, std=self.std, to_rgb=to_rgb)
         return results
 
     def __repr__(self):

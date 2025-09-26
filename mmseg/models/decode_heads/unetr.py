@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+from ..builder import build_loss
 
 
 class SingleDeconv3DBlock(nn.Module):
@@ -102,13 +103,16 @@ class SelfAttention(nn.Module):
 class Mlp(nn.Module):
     def __init__(self, in_features, act_layer=nn.GELU, drop=0.):
         super().__init__()
-        self.fc1 = nn.Linear(in_features, in_features)
+        self.fc1 = nn.Linear(in_features, in_features * 4)  # Expand dimension
+        self.fc2 = nn.Linear(in_features * 4, in_features)  # Contract back
         self.act = act_layer()
         self.drop = nn.Dropout(drop)
 
     def forward(self, x):
-        x = self.fc1(x)  # Fixed: was missing input x
+        x = self.fc1(x)
         x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
         x = self.drop(x)
         return x
 
@@ -126,32 +130,37 @@ class PositionwiseFeedForward(nn.Module):
 
 
 class Embeddings(nn.Module):
-    def __init__(self, input_dim, embed_dim, patch_size, dropout):
+    def __init__(self, input_dim, embed_dim, patch_size, img_shape, dropout):
         super().__init__()
-        self.patch_size = patch_size
+        self.patch_size = patch_size if isinstance(patch_size, (list, tuple)) else [patch_size] * 3
         self.embed_dim = embed_dim
-        self.patch_embeddings = nn.Conv3d(in_channels=input_dim, out_channels=embed_dim,
-                                          kernel_size=patch_size, stride=patch_size)
-        # Position embeddings will be initialized dynamically based on input size
-        self.position_embeddings = None
+        self.img_shape = img_shape
+        
+        # Calculate patch dimensions at initialization
+        self.patch_dim = [
+            img_shape[0] // self.patch_size[0],
+            img_shape[1] // self.patch_size[1], 
+            img_shape[2] // self.patch_size[2]
+        ]
+        self.n_patches = self.patch_dim[0] * self.patch_dim[1] * self.patch_dim[2]
+        
+        # Use separate patch sizes for each dimension 
+        self.patch_embeddings = nn.Conv3d(
+            in_channels=input_dim, 
+            out_channels=embed_dim,
+            kernel_size=self.patch_size, 
+            stride=self.patch_size
+        )
+        
+        # Initialize position embeddings with fixed size
+        self.position_embeddings = nn.Parameter(
+            torch.randn(1, self.n_patches, embed_dim)
+        )
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        # Get input dimensions
-        batch_size, channels, depth, height, width = x.shape
-        
         # Apply patch embeddings
         x = self.patch_embeddings(x)  # Shape: [B, embed_dim, D', H', W']
-        
-        # Calculate actual number of patches
-        _, _, d_patches, h_patches, w_patches = x.shape
-        n_patches = d_patches * h_patches * w_patches
-        
-        # Initialize position embeddings if not done or if size changed
-        if self.position_embeddings is None or self.position_embeddings.shape[1] != n_patches:
-            self.position_embeddings = nn.Parameter(
-                torch.randn(1, n_patches, self.embed_dim, device=x.device, dtype=x.dtype)
-            )
         
         # Flatten spatial dimensions
         x = x.flatten(2)  # Shape: [B, embed_dim, n_patches]
@@ -163,6 +172,7 @@ class Embeddings(nn.Module):
         embeddings = x + self.position_embeddings
         embeddings = self.dropout(embeddings)
         return embeddings
+
 
 
 class TransformerBlock(nn.Module):
@@ -188,9 +198,9 @@ class TransformerBlock(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, input_dim, embed_dim, patch_size, num_heads, num_layers, dropout, extract_layers):
+    def __init__(self, input_dim, embed_dim, patch_size, img_shape, num_heads, num_layers, dropout, extract_layers):
         super().__init__()
-        self.embeddings = Embeddings(input_dim, embed_dim, patch_size, dropout)
+        self.embeddings = Embeddings(input_dim, embed_dim, patch_size, img_shape, dropout)
         self.layer = nn.ModuleList()
         self.encoder_norm = nn.LayerNorm(embed_dim, eps=1e-6)
         self.extract_layers = extract_layers
@@ -211,101 +221,103 @@ class Transformer(nn.Module):
 
 
 class UNETR(nn.Module):
-    def __init__(self, img_shape=(256, 256, 40), input_dim=1, output_dim=2, embed_dim=768, patch_size=16, num_heads=12, dropout=0.1):
+    def __init__(self, img_shape=(40, 256, 256), input_dim=1, output_dim=2, embed_dim=768, 
+                 patch_size=(8, 16, 16), num_heads=12, dropout=0.1):  # Changed patch_size for anisotropic data
         super().__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.embed_dim = embed_dim
         self.img_shape = img_shape
-        self.patch_size = patch_size
+        self.patch_size = patch_size if isinstance(patch_size, (list, tuple)) else [patch_size] * 3
         self.num_heads = num_heads
         self.dropout = dropout
         self.num_layers = 12
         self.ext_layers = [3, 6, 9, 12]
 
-        # Calculate patch dimensions dynamically - this will be updated in forward pass
-        self.patch_dim = None
+        # Calculate patch dimensions
+        self.patch_dim = [
+            img_shape[0] // self.patch_size[0],  # 40//8 = 5
+            img_shape[1] // self.patch_size[1],  # 256//16 = 16  
+            img_shape[2] // self.patch_size[2]   # 256//16 = 16
+        ]
 
-        # Transformer Encoder - removed cube_size parameter
-        self.transformer = \
-            Transformer(
-                input_dim,
-                embed_dim,
-                patch_size,
-                num_heads,
-                self.num_layers,
-                dropout,
-                self.ext_layers
-            )
+        # Transformer Encoder
+        self.transformer = Transformer(
+            input_dim,
+            embed_dim,
+            patch_size,
+            img_shape,
+            num_heads,
+            self.num_layers,
+            dropout,
+            self.ext_layers
+        )
 
         # U-Net Decoder
-        self.decoder0 = \
-            nn.Sequential(
-                Conv3DBlock(input_dim, 32, 3),
-                Conv3DBlock(32, 64, 3)
+        self.decoder0 = nn.Sequential(
+            Conv3DBlock(input_dim, 32, 3),
+            Conv3DBlock(32, 64, 3)
+        )
+
+        self.decoder3 = nn.Sequential(
+            Deconv3DBlock(embed_dim, 512),
+            Deconv3DBlock(512, 256),
+            Deconv3DBlock(256, 128)
+        )
+
+        self.decoder6 = nn.Sequential(
+            Deconv3DBlock(embed_dim, 512),
+            Deconv3DBlock(512, 256),
+        )
+
+        self.decoder9 = Deconv3DBlock(embed_dim, 512)
+
+        self.decoder12_upsampler = SingleDeconv3DBlock(embed_dim, 512)
+
+        self.decoder9_upsampler = nn.Sequential(
+            Conv3DBlock(1024, 512),
+            Conv3DBlock(512, 512),
+            Conv3DBlock(512, 512),
+            SingleDeconv3DBlock(512, 256)
+        )
+
+        self.decoder6_upsampler = nn.Sequential(
+            Conv3DBlock(512, 256),
+            Conv3DBlock(256, 256),
+            SingleDeconv3DBlock(256, 128)
+        )
+
+        self.decoder3_upsampler = nn.Sequential(
+            Conv3DBlock(256, 128),
+            Conv3DBlock(128, 128),
+            SingleDeconv3DBlock(128, 64)
+        )
+
+        self.decoder0_header = nn.Sequential(
+            Conv3DBlock(128, 64),
+            Conv3DBlock(64, 64),
+            SingleConv3DBlock(64, output_dim, 1)
+        )
+        
+        # For binary segmentation, consider using BCEWithLogitsLoss
+        loss_decode = dict(
+                type='CrossEntropyLoss',
+                use_sigmoid=False,
+                loss_weight=1.0,
+
             )
-
-        self.decoder3 = \
-            nn.Sequential(
-                Deconv3DBlock(embed_dim, 512),
-                Deconv3DBlock(512, 256),
-                Deconv3DBlock(256, 128)
-            )
-
-        self.decoder6 = \
-            nn.Sequential(
-                Deconv3DBlock(embed_dim, 512),
-                Deconv3DBlock(512, 256),
-            )
-
-        self.decoder9 = \
-            Deconv3DBlock(embed_dim, 512)
-
-        self.decoder12_upsampler = \
-            SingleDeconv3DBlock(embed_dim, 512)
-
-        self.decoder9_upsampler = \
-            nn.Sequential(
-                Conv3DBlock(1024, 512),
-                Conv3DBlock(512, 512),
-                Conv3DBlock(512, 512),
-                SingleDeconv3DBlock(512, 256)
-            )
-
-        self.decoder6_upsampler = \
-            nn.Sequential(
-                Conv3DBlock(512, 256),
-                Conv3DBlock(256, 256),
-                SingleDeconv3DBlock(256, 128)
-            )
-
-        self.decoder3_upsampler = \
-            nn.Sequential(
-                Conv3DBlock(256, 128),
-                Conv3DBlock(128, 128),
-                SingleDeconv3DBlock(128, 64)
-            )
-
-        self.decoder0_header = \
-            nn.Sequential(
-                Conv3DBlock(128, 64),
-                Conv3DBlock(64, 64),
-                SingleConv3DBlock(64, output_dim, 1)
-            )
+            
+        self.cross_entropy_loss = build_loss(loss_decode)
 
     def forward(self, x):
-        # Calculate patch dimensions based on actual input size
-        batch_size, channels, orig_depth, orig_height, orig_width = x.shape
-        self.patch_dim = [orig_depth // self.patch_size, orig_height // self.patch_size, orig_width // self.patch_size]
-        
         z = self.transformer(x)
         z0, z3, z6, z9, z12 = x, *z
         
-        # Reshape transformer outputs back to 3D using calculated patch dimensions
-        z3 = z3.transpose(-1, -2).view(batch_size, self.embed_dim, *self.patch_dim)
-        z6 = z6.transpose(-1, -2).view(batch_size, self.embed_dim, *self.patch_dim)
-        z9 = z9.transpose(-1, -2).view(batch_size, self.embed_dim, *self.patch_dim)
-        z12 = z12.transpose(-1, -2).view(batch_size, self.embed_dim, *self.patch_dim)
+        # Reshape transformer outputs back to 3D using fixed patch dimensions
+        z3 = z3.transpose(-1, -2).view(z3.shape[0], self.embed_dim, *self.patch_dim)
+        z6 = z6.transpose(-1, -2).view(z6.shape[0], self.embed_dim, *self.patch_dim)
+        z9 = z9.transpose(-1, -2).view(z9.shape[0], self.embed_dim, *self.patch_dim)
+        z12 = z12.transpose(-1, -2).view(z12.shape[0], self.embed_dim, *self.patch_dim)
 
         # Process through decoders
         z12 = self.decoder12_upsampler(z12)
@@ -324,26 +336,27 @@ class UNETR(nn.Module):
         output = self.decoder0_header(torch.cat([z0, z3], dim=1))
         return output
     
-    def forward_train(self, inputs, gt_semantic_seg, seg_weight):
+    def forward_train(self, inputs, gt_semantic_seg, seg_weight=None):
         return self.loss(inputs, gt_semantic_seg, seg_weight)
     
-    def loss(self, inputs, gt_semantic_seg: torch.Tensor, seg_weight):
-        """Calculate losses from a batch of inputs and data samples.
-        
-        Args:
-            inputs (torch.Tensor): Input images
-            gt_semantic_seg (torch.Tensor): Ground truth segmentation
-            seg_weight: Segmentation weights
-            
-        Returns:
-            dict: A dictionary of loss components
-        """
+    def loss(self, inputs, gt_semantic_seg: torch.Tensor, seg_weight=None):
+        """Calculate losses from a batch of inputs and data samples."""
         x = self.forward(inputs)
         
         losses = {}
-        loss_seg = F.cross_entropy(x, gt_semantic_seg.squeeze(1).long(), weight=seg_weight)
+        
+        # Handle potential dimension issues
+        if gt_semantic_seg.ndim == x.ndim:
+            gt_semantic_seg = gt_semantic_seg.squeeze(1)
+            
+        loss_seg = self.cross_entropy_loss(
+            x, 
+            gt_semantic_seg.long(), 
+            weight=seg_weight
+        )
+        
         losses['loss_seg'] = loss_seg
-        losses['acc_seg'] = accuracy(x, gt_semantic_seg.squeeze(1).long())
+        losses['acc_seg'] = accuracy(x, gt_semantic_seg.long())
         
         return losses
 

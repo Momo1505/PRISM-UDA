@@ -9,7 +9,7 @@ dataset_type = 'CityscapesDataset'
 data_root = 'data/cityscapes/'
 img_norm_cfg = dict(
     mean=[0, ], std=[1, ], to_rgb=True)
-crop_size = (128, 128)
+crop_size = (256, 256)
 gta_train_pipeline = [
     dict(type='LoadImageFromFile',from_3d=True),
     dict(type='LoadAnnotations',from_3d=True),

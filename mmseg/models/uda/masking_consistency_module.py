@@ -65,7 +65,7 @@ class MaskingConsistencyModule(Module):
         self.debug_output = {}
         model.debug_output = {}
         dev = img.device
-        means, stds = get_mean_std(img_metas, dev)
+        means, stds = get_mean_std(img_metas, dev,from_3D=True)
 
         if not self.source_only:
             # Share the pseudo labels with the host UDA method
@@ -130,7 +130,7 @@ class MaskingConsistencyModule(Module):
                 strong_parameters, data=masked_img.clone())
 
         # Apply masking to image
-        masked_img = self.mask_gen.mask_image(masked_img)
+        masked_img = self.mask_gen.mask_image(masked_img,True)
 
         # Train on masked images
         #print("Succesfuly infiltrated MIC MODULES mahahaahahah")

@@ -293,10 +293,10 @@ class DACS(UDADecorator):
         #                           pl, 
         #                           os.path.join(out_dir,
         #                              f'{(self.local_iter + 1):06d}_ema_sam_source.png'))
-        if self.local_iter + 1 % 1000==0:
-            save_tiff(pl,os.path.join(out_dir,f'{(self.local_iter + 1):06d}_train_pl_raffine.tif'))
-            save_tiff(sam_source,os.path.join(out_dir,f'{(self.local_iter + 1):06d}_train_sam.tif'))
-            save_tiff(pl_source,os.path.join(out_dir,f'{(self.local_iter + 1):06d}_train_ema.tif'))
+        # if self.local_iter + 1 % 1000==0:
+        #     save_tiff(pl,os.path.join(out_dir,f'{(self.local_iter + 1):06d}_train_pl_raffine.tif'))
+        #     save_tiff(sam_source,os.path.join(out_dir,f'{(self.local_iter + 1):06d}_train_sam.tif'))
+        #     save_tiff(pl_source,os.path.join(out_dir,f'{(self.local_iter + 1):06d}_train_ema.tif'))
         
 
         return network, optimizer
@@ -403,18 +403,27 @@ class DACS(UDADecorator):
             pseudo_prob.shape, device=logits.device)
         return pseudo_label, pseudo_weight
 
-    def filter_valid_pseudo_region(self, pseudo_weight, valid_pseudo_mask):
+    def filter_valid_pseudo_region(self, pseudo_weight, valid_pseudo_mask,from_3D=True):
         if self.psweight_ignore_top > 0:
             # Don't trust pseudo-labels in regions with potential
             # rectification artifacts. This can lead to a pseudo-label
             # drift from sky towards building or traffic light.
             assert valid_pseudo_mask is None
-            pseudo_weight[:, :self.psweight_ignore_top, :] = 0
+            if from_3D:
+                pseudo_weight[:,:, :self.psweight_ignore_top, :] = 0 # in 3D (B,D,H,W)
+            else :
+                pseudo_weight[:,:self.psweight_ignore_top, :] = 0 # in 2D (B,H,W)
         if self.psweight_ignore_bottom > 0:
             assert valid_pseudo_mask is None
-            pseudo_weight[:, -self.psweight_ignore_bottom:, :] = 0
+            if from_3D:
+                pseudo_weight[:,:, -self.psweight_ignore_bottom:, :] = 0 # in 3D (B,D,H,W)
+            else:
+                pseudo_weight[:,-self.psweight_ignore_bottom:, :] = 0 # sin 2D (B,H,W)
         if valid_pseudo_mask is not None:
-            pseudo_weight *= valid_pseudo_mask.squeeze(1)
+            if from_3D:
+                pseudo_weight *= valid_pseudo_mask
+            else:
+                pseudo_weight *= valid_pseudo_mask.squeeze(1)
         return pseudo_weight
 
     def forward_train(self,
@@ -575,7 +584,7 @@ class DACS(UDADecorator):
             os.makedirs(out_dir, exist_ok=True)
 
             pseudo_weight = self.filter_valid_pseudo_region(
-                pseudo_weight, valid_pseudo_mask)
+                pseudo_weight, valid_pseudo_mask,from_3D=True)
             gt_pixel_weight = torch.ones((pseudo_weight.shape), device=dev)
 
 
@@ -590,6 +599,10 @@ class DACS(UDADecorator):
             ema_logits_source = self.get_ema_model().generate_pseudo_label(
                 img , img_metas)
             seg_debug['Source'] = self.get_ema_model().debug_output
+            ema_tif_name = os.path.basename(oriname)
+            if self.local_iter % 500==0:
+                save_tiff(ema_logits_source,os.path.join(out_dir,f'ema_source_{(self.local_iter + 1):06d}_{ema_tif_name}'))
+                save_tiff(gt_semantic_seg,os.path.join(out_dir,f'gt_source_{(self.local_iter + 1):06d}_{ema_tif_name}'),from_seg=True)
 
             pseudo_label_source, pseudo_weight_source = self.get_pseudo_label_and_weight(
                 ema_logits_source)
@@ -734,16 +747,9 @@ class DACS(UDADecorator):
                     strong_parameters,
                     target=torch.stack((gt_pixel_weight[i], pseudo_weight[i])))
                 
-            print("pseudo_weight in dacs shape",pseudo_weight.unique())
-            print("mixed_seg_weight in dacs shape",mixed_seg_weight.unique())
-            print("pseudo_label in dacs shape",pseudo_label.unique())
-            print("gt_pixel_weight in dacs shape",gt_pixel_weight.unique())
             del gt_pixel_weight
             mixed_img = torch.cat(mixed_img)
             mixed_lbl = torch.cat(mixed_lbl)
-            print("mixed_lbl in dacs unique",mixed_lbl.unique())
-
-            
 
             # Train on mixed images
             mix_losses = self.get_model().forward_train(
@@ -912,5 +918,10 @@ def logging(pl_source, sam_source, gt_source, pl, iteration,out_dir, is_train=Tr
 
         df.to_csv(save_dir, index=False)
 
-def save_tiff(data,out_dir):
-    tiff.imwrite(out_dir, data.astype(np.uint8))
+def save_tiff(seg_logits:torch.Tensor,out_dir,from_seg=False):
+    if from_seg:
+        data = seg_logits.squeeze().detach().cpu().numpy()
+        tiff.imwrite(out_dir,data.astype(np.uint8))
+    else:
+        data = seg_logits.argmax(dim=1).squeeze().detach().cpu().numpy()
+        tiff.imwrite(out_dir, data.astype(np.uint8))
