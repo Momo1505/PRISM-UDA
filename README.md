@@ -88,7 +88,28 @@ Une fois tout cela fait, tu lances l'entrainement, et tu récupère les résulta
 ## Objectif long terme 
 Améliorer la méthode actuelle, n'hésite pas à faire des propositions si tu vois des choses à améliorer.
 
+This is what i did ⬇️
 
+## Link between branches and internship report
+
+- ``UNETR_star``: UNETR model used for the refiner. The *star* suffix means that I train the refiner between 20,000 and 32,500 iterations and stop updating the EMA at 32,500 iterations.
+- ``stop_ema_at_25000_iter``: I stop updating the teacher model after 25,000 iterations.
+- ``ablation_studies_with_unet``: Ablation study to determine the best time to stop updating the teacher.
+- ``adding_patches_to_sam_and_ema``:  Attempt to implement the 3D version of prism uda
+- ``conv_and_attention_unet``: I use a TransUnet model for the refiner (see page 21 of the report)
+- ``conv_and_attention_unet_star``: TransUnet training has been modified as explained for the ``UNETR_star`` branch
+- ``data_augmentaion_using_unet``: one of then perspective approaches I tested, namely degrading the source image by adding noise during teacher prediction (see page 30)
+- ``encode_with_conv_decode_with_skip``: MGCA (see page 19)
+- ``encode_decode_with_skip_logging``: MGCA, with the addition of a logging system for ema_vs_gt_iou, sam_vs_gt_iou, refined_pseudo_label_vs_gt_iou, ema_vs_refined_pseudo_label_iou, sam_vs_refined_pseudo_label_iou
+- ``from_conex_component_to_gt``: (see page 25)
+- `mix_sam_and_gt_SDF`: Here, I extract the related components from SAM and EMA, mix them randomly before redistributing the related components into two masks, then train MGCA on these two masks. The goal is to force the model not to depend too much on EMA (see pages 22-27 to understand why this is necessary). The refiner training has been modified (Note: I am testing different training modes to see if they have an impact on the refiner's learning).
+- `mix_sam_and_gt_SDF_normal_training`: Normal training of the previous branch.
+- `random_fusion`: See the section *Moyenne exponentielle avec pondération aléatoire* on page 27.
+- `separation_module`: See the section *Décomposition au lieu de fusion* on page 23.
+- `unet_plus_transformer`: Unet + MGCA model, see the section *Architectures hybrides* on page 20.
+- `using_segformer_as_refining_module`: I use a segformer for the refinement module.
+
+On some branches, you will find notebooks of this format `tesing_refinement_*.ipynb`. In these notebook I trained refinement modules in isolation because it is time consuming to run the full training. how? I used a pre-trained SegFormer on Weih → I3 to generate pseudo-labels for Weih (of high quality since it is source domain) and I3(of low quality), you can find them in `/data2/sow/data/WeiH/pl_preds` and `/data2/sow/data/I3/pl_preds`. I then trained a refinement module (you need to enter into the notebook in order to know which one i am using and how i trained them) on Weih using these EMAs and tested its predictions on I3.
 
 ## Acknowledgements
 
