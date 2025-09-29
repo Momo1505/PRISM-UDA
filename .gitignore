@@ -132,3 +132,4 @@ configs/generated/
 visualization/*.png
 pretrained
 
+work_dirs
